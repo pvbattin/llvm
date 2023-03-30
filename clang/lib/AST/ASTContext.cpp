@@ -840,7 +840,8 @@ canonicalizeImmediatelyDeclaredConstraint(const ASTContext &C, Expr *IDC,
       CSE->getNamedConcept()->getLocation(), NewConverted);
 
   Expr *NewIDC = ConceptSpecializationExpr::Create(
-      C, CSE->getNamedConcept(), CSD, nullptr, CSE->isInstantiationDependent(),
+      C, CSE->getNamedConcept(), CSE->getTemplateArgsAsWritten(), CSD,
+      /*Satisfaction=*/nullptr, CSE->isInstantiationDependent(),
       CSE->containsUnexpandedParameterPack());
 
   if (auto *OrigFold = dyn_cast<CXXFoldExpr>(IDC))
@@ -6633,6 +6634,10 @@ bool ASTContext::FriendsDifferByConstraints(const FunctionDecl *X,
 }
 
 bool ASTContext::isSameEntity(const NamedDecl *X, const NamedDecl *Y) const {
+  // Caution: this function is called by the AST reader during deserialization,
+  // so it cannot rely on AST invariants being met. Non-trivial accessors
+  // should be avoided, along with any traversal of redeclaration chains.
+
   if (X == Y)
     return true;
 
@@ -6768,6 +6773,11 @@ bool ASTContext::isSameEntity(const NamedDecl *X, const NamedDecl *Y) const {
   if (const auto *VarX = dyn_cast<VarDecl>(X)) {
     const auto *VarY = cast<VarDecl>(Y);
     if (VarX->getLinkageInternal() == VarY->getLinkageInternal()) {
+      // During deserialization, we might compare variables before we load
+      // their types. Assume the types will end up being the same.
+      if (VarX->getType().isNull() || VarY->getType().isNull())
+        return true;
+
       if (hasSameType(VarX->getType(), VarY->getType()))
         return true;
 
